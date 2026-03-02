@@ -200,24 +200,27 @@
 
         .tether {
             position: absolute;
-            /*background: var(--success-color);*/
-            border-left: 2px solid var(--success-color);
-            border-bottom: 2px solid var(--success-color);
-            border-bottom-left-radius: 12px;
-            /* Top starts at requester bottom */
-            top: anchor(--requester bottom);
-            /* Left starts at requester left */
-            left: calc(anchor(--requester left) + 20px);
-            /* Bottom extends to approval center */
-            bottom: anchor(--approval center);
-            /* Right extends to approval left */
-            right: anchor(--approval left);
-            /*            border-radius: 0 0 0 12px;*/
-            height: 101px;
-            width: 26px;
-            opacity: 0.9;
+            pointer-events: none;
             z-index: 1;
+            /* Anchor positioning stays the same */
+            top: anchor(var(--prev-anchor) center);
+            left: anchor(var(--prev-anchor) right);
+            bottom: anchor(var(--curr-anchor) center);
+            right: anchor(var(--curr-anchor) left);
         }
+
+            .tether svg {
+                width: 100%;
+                height: 100%;
+            }
+
+            .tether path {
+                stroke: var(--success-color);
+                stroke-width: 2;
+                fill: none;
+                stroke-linecap: round; /* ← ROUNDED ENDPOINTS */
+                stroke-linejoin: round; /* ← ROUNDED CORNER */
+            }
         .approval[data-order="1"] {
             anchor-name: --approval-1;
         }
@@ -667,44 +670,6 @@
                 });
             });
         }
-        //function createTethers() {
-        //    const approvalFlow = $('.approval-flow');
-
-        //    //// Remove any existing tethers
-        //    $('.tether').remove();
-
-        //    // Get all approved approvals
-        //    const approvedApprovals = $('.approval.approved');
-
-        //    if (approvedApprovals.length === 0) return;
-
-        //    let previousAnchor = '--requester';
-        //    let previousLeftOffset = '20px';
-
-        //    approvedApprovals.each(function (index) {
-        //        const currentOrder = $(this).data('order');
-        //        const currentAnchor = `--approval-${currentOrder}`;
-
-        //        // Create tether div
-        //        const tether = $('<div class="tether"></div>');
-
-        //        // Apply CSS with anchor positioning
-        //        tether.css({
-        //            'top': `anchor(${previousAnchor} bottom)`,
-        //            'left': `calc(anchor(${previousAnchor} left) + ${previousLeftOffset})`,
-        //            'bottom': `anchor(${currentAnchor} center)`,
-        //            'right': `anchor(${currentAnchor} left)`
-        //        });
-
-        //        // Add to approval flow (before approvals-container)
-        //        approvalFlow.find('.approvals-container').before(tether);
-
-        //        // Update for next iteration
-        //        previousAnchor = currentAnchor;
-        //        previousLeftOffset = '20px';
-        //    });
-        //}
-
         function createTethers() {
             const approvalFlow = $('.approval-flow');
 
@@ -715,40 +680,74 @@
             const approvedApprovals = $('.approval.approved');
             if (approvedApprovals.length === 0) return;
 
-            // 1️⃣ Assign anchor to requester dot
-            const requesterDot = approvalFlow.find('.requester')[0];
-            requesterDot.style.anchorName = '--requester';
+            // Get requester element
+            const requester = approvalFlow.find('.requester');
+            const requesterRect = requester[0].getBoundingClientRect();
 
-            // 2️⃣ Assign anchors dynamically to approval dots
-            approvedApprovals.each(function () {
-                const order = $(this).data('order');
-                const dot = $(this).find('.connection-dot')[0];
-                dot.style.anchorName = `--approval-${order}`;
-            });
+            // Requester dot position (CSS: bottom: -5px, left: 1rem, size: 10px)
+            const dotRadius = 5; // 10px / 2
+            const requesterDotX = requesterRect.left + 16 + dotRadius; // center of dot
+            const requesterDotY = requesterRect.bottom - 5 + dotRadius; // center of dot
 
-            // 🔴 Force layout flush (important for anchor resolution)
-            approvalFlow[0].offsetHeight;
+            // FIXED: The vertical line X position stays constant
+            const verticalLineX = requesterDotX;
 
-            // 3️⃣ Create tethers sequentially
-            let previousAnchor = '--requester';
+            // Start Y from bottom of requester dot
+            let previousY = requesterDotY + dotRadius;
 
             approvedApprovals.each(function () {
-                const order = $(this).data('order');
-                const currentAnchor = `--approval-${order}`;
+                const approval = $(this);
+                const dot = approval.find('.connection-dot');
 
-                const tether = $('<div class="tether"></div>');
+                // Get current dot position (10px dot)
+                const dotRect = dot[0].getBoundingClientRect();
+                const dotCenterX = dotRect.left + (dotRect.width / 2);
+                const dotCenterY = dotRect.top + (dotRect.height / 2);
 
-                tether.css({
-                    top: `anchor(${previousAnchor} center)`,
-                    left: `anchor(${previousAnchor} right)`,
-                    bottom: `anchor(${currentAnchor} center)`,
-                    right: `anchor(${currentAnchor} left)`
-                });
+                // Calculate SVG dimensions relative to approval-flow
+                const flowOffset = approvalFlow.offset();
+                const startX = verticalLineX - flowOffset.left; // Always use the same vertical line X
+                const startY = previousY - flowOffset.top;
+                const endX = dotCenterX - flowOffset.left;
+                const endY = dotCenterY - flowOffset.top;
 
-                // Insert tether before current approval
-                $(this).before(tether);
+                const width = endX - startX;
+                const height = endY - startY;
 
-                previousAnchor = currentAnchor;
+                // Border radius for curved corner
+                const cornerRadius = 12;
+
+                // Create curved path using quadratic bezier curve
+                const pathD = height > cornerRadius
+                    ? `M 0 0 L 0 ${height - cornerRadius} Q 0 ${height} ${cornerRadius} ${height} L ${width} ${height}`
+                    : `M 0 0 L ${width} ${height}`;
+
+                // Create SVG tether with curved path
+                const tether = $(`
+            <div class="tether" style="
+                position: absolute;
+                top: ${startY}px;
+                left: ${startX}px;
+                width: ${width}px;
+                height: ${height}px;
+                pointer-events: none;
+                z-index: 1;
+            ">
+                <svg width="100%" height="100%" viewBox="0 0 ${width} ${height}">
+                    <path d="${pathD}"
+                          stroke="#10b981"
+                          stroke-width="2"
+                          fill="none"
+                          stroke-linecap="round"
+                          stroke-linejoin="round" />
+                </svg>
+            </div>
+        `);
+
+                approvalFlow.append(tether);
+
+                // FIXED: Start next tether from center of current dot (continuous line)
+                previousY = dotCenterY; // No gap - connect continuously
             });
         }
 
